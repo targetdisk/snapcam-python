@@ -9,6 +9,8 @@ import typing
 
 pp = PrettyPrinter(indent=4).pprint
 ps = PrettyPrinter(indent=4).pformat
+def colorp(thingy, color: str = "magenta"):
+    print(colored(_pp(thingy), color, attrs=["bold"]))
 
 settings = {
     "AutoRotation": 1,
@@ -356,7 +358,7 @@ class Snapcam:
         if disconnect_bt is True:
             self.disconnect()
 
-        return wifi_info
+        return wifi_info[0]
 
 
 class SnapCamDelegate(bt.DefaultDelegate):
