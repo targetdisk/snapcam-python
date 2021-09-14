@@ -1,57 +1,103 @@
 from bluepy import btle as bt
+from collections import OrderedDict as OD
+import json as j
 from pprint import PrettyPrinter
+import re
+from sys import stderr as STDERR
+from termcolor import colored
 import typing
 
 pp = PrettyPrinter(indent=4).pprint
-last_notification = []
+ps = PrettyPrinter(indent=4).pformat
 
-def eprint(errmsg):
-    """Prints `errmsg` to STDERR."""
-    print(errmsg, file=STDERR)
+settings = {
+    "AutoRotation": 1,
+    "VideoMode": 4,
+    "PhotoMode": 5,
+    "second": 11,
+    "time": 15,
+}
+
+
+def trunc_bytes_at(
+    msg: bytes, delim: bytes = b"{", start: int = 1, occurrence: int = 1
+):
+    """Truncates bytes starting from a given point at nth occurrence of a
+    delimiter."""
+    return delim.join(msg[start:].split(delim, occurrence)[:occurrence])
+
+
+class SnapCamParserError(Exception):
+    pass
+
+
+class SnapCamBluetoothSendError(Exception):
+    pass
+
+
+class SnapCamBluetoothReceiveError(Exception):
+    pass
 
 
 class Snapcam:
     btch = {}
     btsvc = {}
+    cam_settings = {}
+    cfg_settings = {}
+    last_notification = []
 
-    long_notification_ops = {
-        0: [0x2D, b'\xffb{"Type":25}CRC:f'],
-        2: [0x2D, b'{"ret":1}'],
-        3: [0x2D, b'{"ret":1}'],
-        4: [0x2D, b'\xffb{"Type":28}CRC:2'],
-        6: [0x2D, b'{"ret":1}'],
-        7: [0x2D, b'{"ret":1}'],
-        8: [0x2D, b'\xffb{"Type":33}CRC:e'],
-        9: [0x2D, b'\xffb{"Type":22}CRC:c'],
-        10: [0x2D, b'\xff1e{"Type":1,"AutoRo'],
-        11: [0x2D, b'tation":"On"}CRC:d'],
-        12: [0x2D, b'\xff19{"Type":11,"secon'],
-        13: [0x2D, b'd":"10"}CRC:5'],
-        14: [0x2D, b'\xff1c{"Type":5,"PhotoM'],
-        15: [0x2D, b'ode":"2MP"}CRC:9'],
-        16: [0x2D, b'\xff1d{"Type":4,"VideoM'],
-        17: [0x2D, b'ode":"720P"}CRC:f'],
-        18: [0x2D, b'\xff23{"Type":15,"time"'],
-        19: [0x2D, b':"20210907182137"}CR'],
-        20: [0x2D, b"C:6"],
-        21: [0x2D, b'\xffb{"Type":27}CRC:1'],
-        23: [0x2D, b'{"ret":1}'],
-        24: [0x2D, b'\xffb{"Type":24}CRC:e'],
-        26: [0x2D, b'{"ret":1}'],
-        25: [0x2D, b'{"ret":1}'],
-        26: [0x2D, b'\xffb{"Type":18}CRC:1'],
-        28: [0x2D, b'{"ret":1}'],
-        29: [0x2D, b'{"ret":1}'],
+    toggles = {
+        "touchpad": 33,
+        "wifi": 22,
     }
 
-    notification_ops = {
-        0: [0x2D, b'\xffb{"Type":18}CRC:1'],
-        2: [0x2D, b'{"ret":1}'],
-        3: [0x2D, b'{"ret":1}'],
+    queries = {
+        "ver": 25,
+        "mode": 28,
+        "touchpad": 28,
+        "status": 28,
+        "battery": 27,
+        "storage": 24,
+        "total": 24,
+        "free": 24,
+        "wifi": 18,
+        "psk": 18,
+        "ssid": 18,
     }
 
-    def __init__(self, ble_mac: str):
+    def __init__(
+        self,
+        ble_mac: str,
+        noti_timeout: float = 2.0,
+        debug: bool = False,
+        do_color: bool = True,
+    ):
         self.ble_mac = ble_mac
+        self.noti_timeout = noti_timeout
+        self.J = j.JSONEncoder(
+            skipkeys=False,
+            ensure_ascii=True,
+            check_circular=True,
+            allow_nan=False,
+            sort_keys=False,
+            indent=None,
+            separators=(",", ":"),
+        )
+        self.debug = debug
+        self.do_color = do_color
+
+    def eprint(self, errmsg, color: str = "red"):
+        """Prints `errmsg` to STDERR."""
+        if self.do_color:
+            print(colored(ps(errmsg), color, attrs=["bold"]), file=STDERR)
+        else:
+            print(errmsg, file=STDERR)
+
+    def att_write(self, msg: bytes, chr_handle: int = 0x2D):
+        if self.debug is True:
+            print("[WRITE]        [{}]: {}".format(hex(chr_handle), msg))
+
+        self.btch[chr_handle].write(msg)
 
     def mk_crc(self, msg: bytes):
         sum = 0
@@ -60,43 +106,173 @@ class Snapcam:
 
         return ("CRC:" + hex(sum & 15)[2:]).encode("ascii")
 
-    def send_msg(self, msg: bytes):
-        pass
+    def mk_msgs(self, cmd: OD, chr_handle: int = 0x2D):
+        if self.debug:
+            print("\nSending: " + colored(ps(cmd), "green", attrs=["bold"]))
+        msg = self.J.encode(cmd).encode("ascii")
 
-    def send_cmd(self, msg: bytes, chr_handle: int=0x2D):
         if len(msg) > 18:
             msg = (
-                b"\xff" + hex(len(msg))[2:].encode("ascii") + msg + mk_crc(msg)
+                b"\xff"
+                + hex(len(msg))[2:].encode("ascii")
+                + msg
+                + self.mk_crc(msg)
             )
-            msgs = [msg[i + 20] for i in range(0, len(msg), 20)]
-            for msg in msgs:
-                self.btch[chr_handle].write(msg)
+            msgs = [msg[i : i + 20] for i in range(0, len(msg), 20)]
+        else:
+            msgs = [b"\xffb" + msg + self.mk_crc(msg)]
+
+        return msgs
+
+    def get_notification(self):
+        if self.btp.waitForNotifications(self.noti_timeout):
+            return self.last_notification[1]
+        else:
+            return None
+
+    def ask_retransmit(self, chr_handle: int = 0x2D):
+        self.att_write(b'{"ret":0}', chr_handle)
+        return self.get_notification()
+
+    def parse_fail(self, msg: bytes):
+        raise SnapCamParserError("Failed to parse {}".format(msg))
+
+    def send_ack(self, chr_handle: int = 0x2D):
+        self.att_write(b'{"ret":1}', chr_handle)
+        return self.get_notification()
+
+    def json_fixup(self, msg: bytes):
+        new_jbytes = b""
+        num_rx = re.compile(r":[0-9 ]+[,}]".encode("ascii"))
+        for match in num_rx.finditer(msg):
+            new_jbytes += msg[: match.span(0)[0]] + re.sub(
+                b"\\s", b"", match.group(0)
+            )
+            match_end = match.span(0)[1]
+        new_jbytes += msg[match_end:]
+
+        return j.loads(new_jbytes)
+
+    def parse_ack(self, msg: bytes):
+        try:
+            return j.loads(msg)
+        except j.JSONDecodeError:
+            return self.json_fixup(msg)
+
+    def get_multipart_msg(self, rsp: bytes, chr_handle: int = 0x2D):
+        json_begin = rsp.find(b"{")
+        if json_begin == -1:
+            self.eprint("ERROR: Couldn't find JSON open!!!")
+            self.parse_fail(rsp)
+
+        expected_length = int(rsp[1:json_begin], 16)
+        big_rsp = rsp[json_begin:]
+
+        while len(big_rsp) < (expected_length + 5):
+            (attempt, rsp) = (0, None)
+            while rsp is None:
+                if attempt == 3:
+                    raise SnapCamBluetoothReceiveError(
+                        "Couldn't read packet after three attempts!"
+                    )
+                rsp = self.send_ack(chr_handle)
+                attempt += 1
+
+            big_rsp += rsp
+
+        json_end = big_rsp.rfind(b"}") + 1
+        crc = re.sub(b"\\s", b"", big_rsp[json_end:])
+        return (big_rsp[:json_end], crc)
+
+    def parse_rsp(self, rsp: bytes, chr_handle: int = 0x2D):
+        crc_match = True
+
+        for attempt in range(0, 3):
+            if rsp[0] not in (0xFF, 0x7B):
+                rsp = self.ask_retransmit(chr_handle)
+            else:
+                break
+
+            if attempt == 2 and rsp[0] not in (0xFF, 0x7B):
+                self.parse_fail(rsp)
+
+        if rsp[0] == 0xFF:
+            (jbytes, crc) = self.get_multipart_msg(
+                rsp=rsp, chr_handle=chr_handle
+            )
 
         else:
-            prefix = b"\xffb"
+            crc = re.sub(b"\\s", b"", rebig_rsp[rsp.rfind(b"}") + 1 :])
 
-    def do_btch_write(self, not_count):
-        try:
-            characteristic = self.notification_ops[not_count][0]
-            data = self.notification_ops[not_count][1]
-            print(
-                "{}: [{}]: Writing: {}".format(
-                    not_count, hex(characteristic), data
-                )
+        our_crc = self.mk_crc(jbytes)
+        if our_crc != crc:
+            self.eprint(
+                "WARN: CRC mismatch on multipart data!  "
+                + "Theirs: {}. Computed: {}".format(crc, our_crc)
             )
-            self.btch[characteristic].write(data)
-        except KeyError:
-            print("Waiting...")
+            crc_match = False
 
-    class Delegate_2a(bt.DefaultDelegate):
-        def __init__(self, params=None):
-            bt.DefaultDelegate.__init__(self)
+        try:
+            return (j.loads(jbytes), crc_match)
+        except j.JSONDecodeError:
+            try:
+                return (self.json_fixup(jbytes), crc_match)
+            except UnicodeDecodeError as e:
+                self.eprint("ERROR: Couldn't parse message: {}".format(jbytes))
+                return {"exception": e, "unparsed_rsp": jbytes}
 
-        def handleNotification(chandle, data):
-            print("handle: {}".format(hex(chandle)), end="  ")
-            print("data:", end=" ")
-            pp(data)
-            last_notification = [chandle, data]
+    def send_msgs(
+        self, cmd: OD, chr_handle: int = 0x2D, expect_rsp: bool = True
+    ):
+        """If fails, returns None instead of tuple of (dict, bool)"""
+        msgs = self.mk_msgs(cmd=cmd, chr_handle=chr_handle)
+
+        for i in range(0, len(msgs)):
+            for send_attempt in range(0, 3):
+                self.att_write(msgs[i], chr_handle)
+                ack = self.parse_ack(self.get_notification())
+                try:
+                    if expect_rsp and (ack["Type"] != cmd["Type"]):
+                        raise TypeError(
+                            "Expected response of Type {}, got {}".format(
+                                cmd["Type"], ack["Type"]
+                            )
+                        )
+                except KeyError:
+                    self.eprint('WARN: Received ack of unknown "Type"')
+                try:
+                    ret = ack["ret"]
+                except KeyError:
+                    for key in ack.keys():
+                        ack[key.replace(" ", "")] = ack.pop(key)
+
+                ret = ack["ret"]
+                if ret == 1:
+                    break
+                elif ret == 0:
+                    continue
+                else:
+                    raise ValueError(
+                        'Expected a "ret" of 1 or 0, but got {}'.format(
+                            ack["ret"]
+                        )
+                    )
+            if i == 2 and ret != 1:
+                raise SnapCamBluetoothSendError(
+                    "Tried three times to send message ({})".format(msg)
+                    + ", but still got nonzero return from SnapCam."
+                )
+        if expect_rsp:
+            for send_attempt in range(0, 3):
+                rsp = self.get_notification()
+                if rsp:
+                    break
+            if rsp is not None:
+                return self.parse_rsp(rsp=rsp, chr_handle=chr_handle)
+            else:
+                return None
+        else:
+            return None
 
     def start_wifi(self, ssid: str = "SnapCam_6A6C"):
         pass
@@ -115,7 +291,11 @@ class Snapcam:
         for s in self.btp.getServices():
             self.btsvc[s.uuid] = self.btp.getServiceByUUID(s.uuid)
 
-        self.btp.setDelegate(self.Delegate_2a)
+        self.btd = SnapCamDelegate(parent=self, debug=self.debug)
+        self.btp.setDelegate(self.btd)
+
+        if self.debug is True:
+            print("0x2a read() = " + self.btch[0x2A].read().hex())
 
     def show_services(self):
         for su, svc in self.btsvc.items():
@@ -131,8 +311,63 @@ class Snapcam:
             print("  handle: " + hex(handle), end="  ")
             print("  " + c.propertiesToString())
 
-    def start_notifications(self):
-        pass
-
     def disconnect(self):
-        self.btp.disconnect()
+        try:
+            self.btp.disconnect()
+        except AttributeError:
+            self.eprint("Can't disconnect, not connected!")
+
+    def query_item(
+        self, item: str, expect_rsp: bool = True, chr_handle: int = 0x2D
+    ):
+        try:
+            sc_type = self.queries[item]
+        except KeyError:
+            self.eprint("ERROR: unknown query!")
+            return None
+
+        return self.send_msgs(
+            cmd=OD([("Type", sc_type)]), expect_rsp=expect_rsp
+        )
+
+    def toggle_item(
+        self, item: str, expect_rsp: bool = False, chr_handle: int = 0x2D
+    ):
+        try:
+            sc_type = self.toggles[item]
+        except KeyError:
+            self.eprint("ERROR: unknown query!")
+            return None
+
+        return self.send_msgs(
+            cmd=OD([("Type", sc_type)]), expect_rsp=expect_rsp
+        )
+
+    def enable_wifi(self, chr_handle: int = 0x2D):
+        disconnect_bt = False
+
+        if not hasattr(self, "btp"):
+            self.connect()
+            disconnect_bt = True
+
+        self.toggle_item("wifi")
+        wifi_info = self.query_item("wifi")
+
+        if disconnect_bt is True:
+            self.disconnect()
+
+        return wifi_info
+
+
+class SnapCamDelegate(bt.DefaultDelegate):
+    def __init__(self, parent: Snapcam, debug: bool = False):
+        self.parent = parent
+        self.debug = debug
+        bt.DefaultDelegate.__init__(self)
+
+    def handleNotification(self, chandle, data):
+        if self.debug is True:
+            print("[NOTIFICATION] [{}]".format(hex(chandle)), end=": ")
+            pp(data)
+
+        self.parent.last_notification = [chandle, data]
