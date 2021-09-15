@@ -1,16 +1,11 @@
 from bluepy import btle as bt
 from collections import OrderedDict as OD
 import json as j
-from pprint import PrettyPrinter
 import re
-from sys import stderr as STDERR
-from termcolor import colored
+from Snapcam.exceptions import *
+from Snapcam.util import pp, eprint, cprint
 import typing
 
-pp = PrettyPrinter(indent=4).pprint
-ps = PrettyPrinter(indent=4).pformat
-def colorp(thingy, color: str = "magenta"):
-    print(colored(_pp(thingy), color, attrs=["bold"]))
 
 settings = {
     "AutoRotation": 1,
@@ -19,26 +14,6 @@ settings = {
     "second": 11,
     "time": 15,
 }
-
-
-def trunc_bytes_at(
-    msg: bytes, delim: bytes = b"{", start: int = 1, occurrence: int = 1
-):
-    """Truncates bytes starting from a given point at nth occurrence of a
-    delimiter."""
-    return delim.join(msg[start:].split(delim, occurrence)[:occurrence])
-
-
-class SnapCamParserError(Exception):
-    pass
-
-
-class SnapCamBluetoothSendError(Exception):
-    pass
-
-
-class SnapCamBluetoothReceiveError(Exception):
-    pass
 
 
 class Snapcam:
@@ -88,13 +63,6 @@ class Snapcam:
         self.debug = debug
         self.do_color = do_color
 
-    def eprint(self, errmsg, color: str = "red"):
-        """Prints `errmsg` to STDERR."""
-        if self.do_color:
-            print(colored(ps(errmsg), color, attrs=["bold"]), file=STDERR)
-        else:
-            print(errmsg, file=STDERR)
-
     def att_write(self, msg: bytes, chr_handle: int = 0x2D):
         if self.debug is True:
             print("[WRITE]        [{}]: {}".format(hex(chr_handle), msg))
@@ -110,7 +78,8 @@ class Snapcam:
 
     def mk_msgs(self, cmd: OD, chr_handle: int = 0x2D):
         if self.debug:
-            print("\nSending: " + colored(ps(cmd), "green", attrs=["bold"]))
+            print("\nSending:", end=" ")
+            cprint(cmd, color="green", do_color=self.do_color)
         msg = self.J.encode(cmd).encode("ascii")
 
         if len(msg) > 18:
@@ -164,7 +133,7 @@ class Snapcam:
     def get_multipart_msg(self, rsp: bytes, chr_handle: int = 0x2D):
         json_begin = rsp.find(b"{")
         if json_begin == -1:
-            self.eprint("ERROR: Couldn't find JSON open!!!")
+            eprint("ERROR: Couldn't find JSON open!!!", do_color=self.do_color)
             self.parse_fail(rsp)
 
         expected_length = int(rsp[1:json_begin], 16)
@@ -208,9 +177,10 @@ class Snapcam:
 
         our_crc = self.mk_crc(jbytes)
         if our_crc != crc:
-            self.eprint(
+            eprint(
                 "WARN: CRC mismatch on multipart data!  "
-                + "Theirs: {}. Computed: {}".format(crc, our_crc)
+                + "Theirs: {}. Computed: {}".format(crc, our_crc),
+                do_color=self.do_color,
             )
             crc_match = False
 
@@ -220,7 +190,10 @@ class Snapcam:
             try:
                 return (self.json_fixup(jbytes), crc_match)
             except UnicodeDecodeError as e:
-                self.eprint("ERROR: Couldn't parse message: {}".format(jbytes))
+                eprint(
+                    "ERROR: Couldn't parse message: {}".format(jbytes),
+                    do_color=self.do_color,
+                )
                 return {"exception": e, "unparsed_rsp": jbytes}
 
     def send_msgs(
@@ -241,7 +214,10 @@ class Snapcam:
                             )
                         )
                 except KeyError:
-                    self.eprint('WARN: Received ack of unknown "Type"')
+                    eprint(
+                        'WARN: Received ack of unknown "Type"',
+                        do_color=self.do_color,
+                    )
                 try:
                     ret = ack["ret"]
                 except KeyError:
@@ -317,7 +293,7 @@ class Snapcam:
         try:
             self.btp.disconnect()
         except AttributeError:
-            self.eprint("Can't disconnect, not connected!")
+            eprint("Can't disconnect, not connected!", do_color=self.do_color)
 
     def query_item(
         self, item: str, expect_rsp: bool = True, chr_handle: int = 0x2D
@@ -325,7 +301,7 @@ class Snapcam:
         try:
             sc_type = self.queries[item]
         except KeyError:
-            self.eprint("ERROR: unknown query!")
+            eprint("ERROR: unknown query!", do_color=self.do_color)
             return None
 
         return self.send_msgs(
@@ -338,7 +314,7 @@ class Snapcam:
         try:
             sc_type = self.toggles[item]
         except KeyError:
-            self.eprint("ERROR: unknown query!")
+            eprint("ERROR: unknown query!", do_color=self.do_color)
             return None
 
         return self.send_msgs(

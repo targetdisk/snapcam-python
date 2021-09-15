@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from collections import OrderedDict as OD
-from Snapcam import colorp, settings, Snapcam
+from Snapcam.btle import settings, Snapcam
+from Snapcam.util import cprint
 
 scams = [
     Snapcam("d4:2c:3d:05:ce:f5", debug=True),
@@ -22,12 +23,12 @@ for setting in our_settings:
 
 for sc in scams:
     sc.connect()
-    colorp("CAMERA: {}".format(sc.ble_mac), color="green")
+    cprint("CAMERA: {}".format(sc.ble_mac), color="green")
     for item in items:
-        colorp(sc.query_item(item))
-        colorp(sc.query_item("mode"))
+        cprint(sc.query_item(item))
+        cprint(sc.query_item("mode"))
 
     for cmd in cmds:
-        colorp(sc.send_msgs(cmd, expect_rsp=False))
+        cprint(sc.send_msgs(cmd, expect_rsp=False))
 
     sc.disconnect()
