@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Only supports GCC (for now)
+
+# Get C or C++ include path
+get-incl() {
+  xc=$([ "$1" == "gcc" ] && echo -n "-xc" || echo -n "-xc++")
+
+  $1 -E -Wp,-v "$xc" /dev/null  2>&1 \
+   | sed -e '1,/^\s*#include\s\+<\.\.\.>\s\+search\s\+starts\s\+here:\s*/d' \
+   | sed -e '/^\s*End\s\+of\s\+search\s\+list.\s*$/,$d' \
+   | sed -e 's/^\s\+//g; s/\s\+$//g'
+}
+
+get-both() { get-incl gcc; get-incl g++ ; }
+
+while getopts 'cpP' opt; do
+  case "${opt}" in
+    c)
+      get-incl gcc
+      ;;
+    p)
+      get-incl g++
+      ;;
+    P)
+      sort -u <<<$(get-both)
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+done
+
+shift $((OPTIND-1))
