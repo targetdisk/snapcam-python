@@ -292,6 +292,7 @@ class Snapcam:
     def disconnect(self):
         try:
             self.btp.disconnect()
+            delattr(self, "btp")
         except AttributeError:
             eprint("Can't disconnect, not connected!", do_color=self.do_color)
 
@@ -335,6 +336,35 @@ class Snapcam:
             self.disconnect()
 
         return wifi_info[0]
+
+    def set_settings(self, our_settings: dict):
+        cmds = []
+
+        for setting in our_settings:
+            try:
+                cmds += (
+                    OD(
+                        [
+                            ("Type", settings[setting[0]]),
+                            (setting[0], setting[1]),
+                        ]
+                    ),
+                )
+            except KeyError:
+                eprint(
+                    'ERROR: unknown setting: "{}"'.format(setting),
+                    do_color=self.do_color,
+                )
+                raise SnapCamUnknownSettingError
+
+        for cmd in cmds:
+            if self.debug is True:
+                cprint(
+                    self.send_msgs(cmd, expect_rsp=False),
+                    do_color=self.do_color,
+                )
+            else:
+                self.send_msgs(cmd, expect_rsp=False)
 
 
 class SnapCamDelegate(bt.DefaultDelegate):

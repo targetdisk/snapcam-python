@@ -8,3 +8,7 @@ class SnapCamBluetoothSendError(Exception):
 
 class SnapCamBluetoothReceiveError(Exception):
     pass
+
+
+class SnapCamUnknownSettingError(Exception):
+    pass

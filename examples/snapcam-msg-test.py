@@ -4,8 +4,8 @@ from Snapcam.btle import settings, Snapcam
 from Snapcam.util import cprint
 
 scams = [
-    Snapcam("d4:2c:3d:05:ce:f5", debug=True),
-    Snapcam("d4:2c:3d:05:dc:e0", debug=True),
+    # Snapcam("d4:2c:3d:05:ce:f5", debug=True),
+    # Snapcam("d4:2c:3d:05:dc:e0", debug=True),
     Snapcam("d4:2c:3d:07:44:60", debug=True),
 ]
 

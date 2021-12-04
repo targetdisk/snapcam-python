@@ -1,5 +1,5 @@
 from multiprocessing import Process, Queue
-from Snapcam.rtsp_util import digest_pkts, get_sessid, get_bindip
+from Snapcam.rtsp_util import digest_pkts, v4ldump, get_sessid, get_bindip
 from Snapcam.util import eprint, get_nthreads
 import socket
 import typing
@@ -93,10 +93,12 @@ class SnapcamRTSP:
         player = Process(target=self.send_play)
         getter = Process(target=self.get_pkts)
         stomach = Process(target=digest_pkts, args=(self.pkt_q, self.write_q))
+        v4ldemo = Process(target=v4ldump)
 
         player.start()
         getter.start()
         stomach.start()
+        v4ldemo.start()
 
         while True:
             sleep(1)
