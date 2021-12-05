@@ -65,7 +65,7 @@ you intend to try out the code in this repository!  Both are listed on the same
 so be sure to verify that you are purchasing the correct model.
 
 <p align="center">
-  <img alt="SnapCam 1050 only!" src="./img/supported-snaps.png" width=700 height=426>
+  <img alt="SnapCam 1050 only!" src="./img/supported-snaps.png" width=100% height=auto>
 </p>
 
 ## What is this repository for?
@@ -79,8 +79,8 @@ interact with and stream video from a SnapCam.
 
 ## Installing the Demo
 Currently this software only supports running on Linux systems with Python 3.8 or
-newer.  It also requires a recent version of `ffmpeg`, and the `v4l2loopback`
-kernel module.
+newer.  It also requires `bluez-tools`, a recent version of `ffmpeg`, and the
+`v4l2loopback` kernel module.
 
 ### Video4Linux Loopback Setup
 You must install the out-of-tree `v4l2loopback`
@@ -127,31 +127,91 @@ Install the `Snapcam` Python package:
 (.venv)$ python3 setup.py install
 ```
 
+## Powering on the Camera
+Hold the power button on the camera until you hear two short beeps.  The camera
+should now be on and ready to receive commands over Bluetooth-LE.  See the
+camera's owner's manual for more information.
+
+## Starting your Computer's Bluetooth and Finding Your Camera
+If you don't have a GUI control panel that allows you to enable your computer's
+Bluetooth, you can run the following in a `root` shell or with `sudo`:
+```
+# systemctl start bluetooth
+```
+
+As your regular user, start `bluetoothctl`:
+```
+(.venv)$ bluetoothctl
+Agent registered
+[bluetooth]#
+```
+
+From the `bluetoothctl` prompt, power on your computer's Bluetooth:
+```
+[bluetooth]# power on
+Changing power on succeeded
+```
+
+Start scanning for devices:
+```
+[bluetooth]# scan on
+Discovery started
+[CHG] Controller 98:8D:46:DC:AB:BC Discovering: yes
+[CHG] Device D4:2C:3D:07:44:60 RSSI: -69
+[CHG] Device D4:2C:3D:07:44:60 TxPower: 4
+```
+
+Locate your SnapCam:
+```
+[bluetooth]# devices
+Device D4:2C:3D:07:44:60 Snap4460
+```
+
+Write/record the MAC address of your camera, it'll come in handy later.
+
+You can now safely `exit` the `bluetoothctl` CLI:
+```
+[bluetooth]# exit
+(.venv)$
+```
+
+## Enabling your SnapCam's WiFi Access Point
+To enable the WiFi run the `enable-sc-wifi` followed by your camera's
+**Bluetooth** MAC address:
+```
+(.venv)$ enable-sc-wifi D4:2C:3D:07:44:60
+{"Type": 18, "ssid": "SnapCam_2264", "pwd": "123456789"}
+```
+
+Connect to it using your computer's WiFi settings (or `wpa_cli` if you're too
+cool for NetworkManager).
+
 ## Running the Demos
 Plugging in your SnapCam into a micro-USB charger while running the
 demo is *highly recommended*, as its battery life is abysmal while streaming
 over WiFi.
 
-Hold the power button on the camera until you hear two short beeps.  The camera
-should now be on and ready to run the demo.
-
 ### Running the Bluetooth messaging demo
 The first demo shows how you can use my `Snapcam` class to interact with a
-SnapCam 1050.  Run it like so:
-```
-(.venv)$ python3 examples/demo.py
-```
-
-### Running the V4L2 webcam demo
-Ensure your computer is connected to the SnapCam's WiFi AP and has gotten a DHCP
-address.
+SnapCam 1050.
 
 Edit the **Bluetooth** MAC address in line 8 of `examples/demo.py` to your
 camera's Bluetooth MAC (find it by scanning with `bluetoothctl`):
 ```python
 sc = Snapcam("d4:2c:3d:07:44:60", debug=True)
-              ^^^^^^^^^^^^^^^^^
 ```
+
+Run it like so:
+```
+(.venv)$ python3 examples/demo.py
+```
+
+This demo will demonstrate toggling and changing some settings on your SnapCam,
+just like the Android and iOS apps do.
+
+### Running the V4L2 webcam demo
+Ensure your computer is connected to the SnapCam's WiFi AP and has gotten a DHCP
+address.
 
 Run the demo in a terminal (keep the terminal open):
 ```
