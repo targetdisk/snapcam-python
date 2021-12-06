@@ -1,6 +1,6 @@
 # SnapCam for Python
 <p align="center">
-  <img alt="image of a SnapCam 1050" src="./img/snapcam.png" width=223 height=223>
+  <img alt="image of a SnapCam 1045/1050" src="./img/snapcam.png" width=223 height=223>
 </p>
 
 <p align="center">
@@ -59,9 +59,9 @@ will be up for sale online.
 ### Supported models
 Note that this project will only work on the SnapCam models with the onboard
 WiFi!  The SnapCam Lite 1046 model uses a completely different application
-processor and lacks onboard Bluetooth/WiFi.  Only buy the SnapCam 1050 model if
-you intend to try out the code in this repository!  Both are listed on the same
-[Amazon page](https://www.amazon.com/iON-Camera-SnapCam-Wearable-Bluetooth/dp/B0131DSBN0),
+processor and lacks onboard Bluetooth/WiFi.  Only buy the SnapCam 1045/1050
+model if you intend to try out the code in this repository!  Both are listed on
+the same [Amazon page](https://www.amazon.com/iON-Camera-SnapCam-Wearable-Bluetooth/dp/B0131DSBN0),
 so be sure to verify that you are purchasing the correct model.
 
 <p align="center">
